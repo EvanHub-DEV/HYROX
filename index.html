@@ -207,6 +207,36 @@
   .edit-actions{ display:flex; gap:8px; margin-top:15px; }
   .edit-actions button{ flex:1; }
 
+  /* ---------- SESSION MODE (série par série) ---------- */
+  .session-head-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px 0; }
+  .session-prog-title{ font-family:'Bebas Neue',sans-serif; font-size:24px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mode-toggle-btn{ border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:11px; padding:9px 12px; font:800 11.5px Inter,sans-serif; cursor:pointer; white-space:nowrap; flex:0 0 auto; }
+  .mode-toggle-btn.editing{ background:var(--accent); color:#1A0D08; border-color:var(--accent); }
+  .reset-session-link{ display:block; text-align:center; margin:6px auto 0; background:none; border:none; color:var(--text-faint); font-size:11px; font-weight:700; padding:6px; cursor:pointer; }
+
+  .set-card-wrap{ position:relative; }
+  .set-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:22px 18px 20px; margin-top:10px; text-align:center; animation: fadeUp .25s ease; }
+  .set-card.valid-flash{ border-color:var(--success); }
+  .set-exo-name{ font-family:'Bebas Neue',sans-serif; font-size:22px; color:var(--text); }
+  .set-exo-sub{ font-size:11.5px; color:var(--text-dim); font-weight:700; margin-top:2px; letter-spacing:0.02em; }
+  .target-row{ display:flex; align-items:center; justify-content:center; gap:16px; margin:22px 0 6px; }
+  .target-block{ text-align:center; min-width:76px; }
+  .target-num{ font-family:'Bebas Neue',sans-serif; font-size:58px; line-height:1; }
+  .target-num.reps{ color:var(--accent2); }
+  .target-num.weight{ color:var(--accent); }
+  .target-lbl{ font-size:10px; color:var(--text-dim); font-weight:800; letter-spacing:0.08em; text-transform:uppercase; margin-top:4px; }
+  .target-x{ font-family:'Bebas Neue',sans-serif; font-size:28px; color:var(--text-faint); margin-top:-14px; }
+
+  .set-burst{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:6; }
+  .set-burst .check{ width:78px; height:78px; border-radius:50%; background:var(--success); color:#0B1F13; display:flex; align-items:center; justify-content:center; font-size:36px; font-weight:800; animation: burstIn .5s cubic-bezier(.34,1.56,.64,1); box-shadow:0 0 0 12px rgba(62,217,139,0.16); }
+  @keyframes burstIn{ 0%{ transform:scale(0.15); opacity:0; } 55%{ transform:scale(1.18); opacity:1; } 100%{ transform:scale(1); opacity:1; } }
+  .validate-btn.success-flash{ background:var(--success); color:#0B1F13; box-shadow:0 8px 24px rgba(62,217,139,0.3); animation: flashScale .35s ease; }
+  @keyframes flashScale{ 0%{ transform:scale(1); } 40%{ transform:scale(1.04); } 100%{ transform:scale(1); } }
+
+  .empty-session{ text-align:center; color:var(--text-dim); padding:30px 20px; background:var(--surface); border:1px dashed var(--border); border-radius:16px; margin:14px 16px; font-size:12.5px; line-height:1.6; }
+  .empty-session button{ margin-top:12px; }
+
+  .session-celebrate .big{ font-size:38px; }
 </style>
 </head>
 <body>
@@ -403,12 +433,15 @@ function makeWorkoutDefaults(){
         {id:"e1", name:"Back Squat", metricType:"reps", metricUnit:"reps", loadUnit:"kg", sets:[{reps:12,weight:120},{reps:10,weight:130},{reps:8,weight:140}]}
       ]}
     ],
-    activeProgramId:"p1"
+    activeProgramId:"p1",
+    session:{}
   };
 }
 let workoutDefaults = makeWorkoutDefaults();
-let state = { view:"meals", dayIdx:0, mealIdx:0, validated:{}, workout:workoutDefaults, workoutBankOpen:false, exerciseEditOpen:false, editExerciseIndex:null, loaded:false };
+let state = { view:"meals", dayIdx:0, mealIdx:0, validated:{}, workout:workoutDefaults, workoutBankOpen:false, exerciseEditOpen:false, editExerciseIndex:null, trainingMode:"session", loaded:false };
 let celebrating = false;
+let trainingCelebrate = false;
+let justValidatedSet = false;
 let resetConfirm = false;
 
 function todayRealIdx(){
@@ -436,6 +469,7 @@ async function loadState(){
       state.workout.bank = normalizeBank(state.workout.bank);
       if(!state.workout.programs.length) state.workout.programs = makeWorkoutDefaults().programs;
       if(!state.workout.activeProgramId) state.workout.activeProgramId = state.workout.programs[0].id;
+      if(!state.workout.session) state.workout.session = {};
       state.workout.programs.forEach(p=>p.exercises.forEach(ex=>exerciseConfig(ex)));
     } else {
       state.dayIdx = todayRealIdx();
@@ -466,6 +500,15 @@ function metricPlaceholder(ex){ return ex.metricType==="reps" ? "Répétitions" 
 function loadPlaceholder(ex){ return ex.metricType==="reps" ? `Charge (${ex.loadUnit})` : `Charge (${ex.loadUnit})`; }
 function totalMeals(){ return DAYS.length * 4; }
 function validatedCount(){ return Object.keys(state.validated).length; }
+
+function sessionFor(program){
+  if(!state.workout.session) state.workout.session = {};
+  let s = state.workout.session[program.id];
+  const firstExId = program.exercises.length ? program.exercises[0].id : null;
+  if(!s){ s = { exId:firstExId, setIdx:0, validated:{} }; state.workout.session[program.id] = s; }
+  if(!program.exercises.some(e=>e.id===s.exId)){ s.exId = firstExId; s.setIdx = 0; }
+  return s;
+}
 
 function renderSectionsMeal(meal){
   let html = `<div class="meal-title">${MEAL_ICONS[state.mealIdx]} ${esc(meal.title)}</div>`;
@@ -546,7 +589,7 @@ function render(){
     html += `
     <div class="training-header">
       <h2>Mes entraînements</h2>
-      <p>Crée plusieurs programmes selon tes jours d'entraînement. Ajoute tes exercices, puis renseigne chaque série avec les répétitions et le poids.</p>
+      <p>Choisis un programme, suis-le série par série, ou passe en mode édition pour l'ajuster.</p>
       <div class="training-tools">
         <div class="program-chips">
           ${w.programs.map(p=>`<button class="program-chip ${p.id===state.workout.activeProgramId?'active':''}" data-act="select-program" data-pid="${esc(p.id)}">${esc(p.name)}</button>`).join("")}
@@ -554,44 +597,113 @@ function render(){
         <button class="small-btn primary" data-act="add-program">+ Programme</button>
       </div>
     </div>`;
+
     if(program){
-      html += `<div class="program-card">
-        <div class="program-head">
-          <div class="program-title">${esc(program.name)}</div>
-          <div class="program-actions">
-            <button class="icon-btn" data-act="rename-program" title="Renommer">✎</button>
-            <button class="icon-btn" data-act="delete-program" title="Supprimer">×</button>
-          </div>
-        </div>`;
-      if(!program.exercises.length){
-        html += `<div class="empty-training">Aucun exercice dans ce programme.<br>Appuie sur « Ajouter un exercice » pour ouvrir la banque.</div>`;
+      html += `<div class="session-head-row">
+        <div class="session-prog-title">${esc(program.name)}</div>
+        <div style="display:flex;gap:6px;">
+          <button class="icon-btn" data-act="rename-program" title="Renommer">✎</button>
+          <button class="icon-btn" data-act="delete-program" title="Supprimer">×</button>
+          <button class="mode-toggle-btn ${state.trainingMode==='edit'?'editing':''}" data-act="toggle-training-mode">${state.trainingMode==='edit' ? '✓ Terminer' : '✎ Modifier'}</button>
+        </div>
+      </div>`;
+
+      if(state.trainingMode === "edit"){
+        /* ---------- MODE ÉDITION (liste complète, existant) ---------- */
+        html += `<div class="program-card" style="margin-top:10px;">`;
+        if(!program.exercises.length){
+          html += `<div class="empty-training">Aucun exercice dans ce programme.<br>Appuie sur « Ajouter un exercice » pour ouvrir la banque.</div>`;
+        } else {
+          program.exercises.forEach((ex,ei)=>{
+            exerciseConfig(ex);
+            html += `<div class="exercise-card">
+              <div class="exercise-head">
+                <div><div class="exercise-name">${esc(ex.name)}</div><div class="exercise-meta">${esc(metricTypeLabel(ex.metricType))} · ${esc(ex.metricUnit)} · charge ${esc(ex.loadUnit)}</div></div>
+                <div class="exercise-actions">
+                  <button class="icon-btn" data-act="edit-exercise" data-eidx="${ei}" title="Modifier">✎</button>
+                  <button class="icon-btn" data-act="delete-exercise" data-eidx="${ei}" title="Supprimer">×</button>
+                </div>
+              </div>
+              <div class="set-list">`;
+            ex.sets.forEach((set,si)=>{
+              html += `<div class="set-row">
+                <div class="set-no">${si+1}</div>
+                <input class="set-input" type="number" min="0" step="0.1" inputmode="decimal" placeholder="${esc(metricPlaceholder(ex))} (${esc(ex.metricUnit)})" value="${setMetricValue(set,ex)}" data-act="set-metric" data-eidx="${ei}" data-sidx="${si}">
+                <input class="set-input" type="number" min="0" step="0.1" inputmode="decimal" placeholder="${esc(loadPlaceholder(ex))}" value="${setLoadValue(set)}" data-act="set-load" data-eidx="${ei}" data-sidx="${si}">
+                <button class="remove-set" data-act="remove-set" data-eidx="${ei}" data-sidx="${si}" title="Supprimer la série">×</button>
+              </div>`;
+            });
+            html += `</div><button class="add-set" data-act="add-set" data-eidx="${ei}">+ Ajouter une série</button></div>`;
+          });
+        }
+        html += `<button class="add-exercise" data-act="add-exercise">+ Ajouter un exercice au programme</button></div>`;
+
+      } else if(!program.exercises.length){
+        /* ---------- MODE SESSION, programme vide ---------- */
+        html += `<div class="empty-session">Ce programme n'a pas encore d'exercice.<br>Passe en mode édition pour en ajouter.
+          <br><button class="small-btn primary" data-act="toggle-training-mode">✎ Modifier le programme</button></div>`;
+
       } else {
-        program.exercises.forEach((ex,ei)=>{
-          exerciseConfig(ex);
-          html += `<div class="exercise-card">
-            <div class="exercise-head">
-              <div><div class="exercise-name">${esc(ex.name)}</div><div class="exercise-meta">${esc(metricTypeLabel(ex.metricType))} · ${esc(ex.metricUnit)} · charge ${esc(ex.loadUnit)}</div></div>
-              <div class="exercise-actions">
-                <button class="icon-btn" data-act="edit-exercise" data-eidx="${ei}" title="Modifier">✎</button>
-                <button class="icon-btn" data-act="delete-exercise" data-eidx="${ei}" title="Supprimer">×</button>
+        /* ---------- MODE SESSION (série par série) ---------- */
+        const sess = sessionFor(program);
+        const exIdx = program.exercises.findIndex(e=>e.id===sess.exId);
+        const ex = program.exercises[exIdx];
+        exerciseConfig(ex);
+        if(sess.setIdx >= ex.sets.length) sess.setIdx = ex.sets.length-1;
+        const set = ex.sets[sess.setIdx];
+        const setKey = ex.id+"_"+sess.setIdx;
+        const setDone = !!sess.validated[setKey];
+
+        html += `
+        <div class="day-nav">
+          <button data-act="prev-exercise" ${exIdx===0?'disabled':''}>‹</button>
+          <div class="day-info">
+            <div class="jour">${esc(ex.name)}</div>
+            <div class="date">Exercice ${exIdx+1}/${program.exercises.length}</div>
+          </div>
+          <button data-act="next-exercise" ${exIdx===program.exercises.length-1?'disabled':''}>›</button>
+        </div>
+
+        <div class="dots">`;
+        ex.sets.forEach((s,si)=>{
+          const done = !!sess.validated[ex.id+"_"+si];
+          const cur = si===sess.setIdx;
+          html += `<button class="dot ${cur?'current':''} ${done?'done':''}" data-act="goto-set" data-idx="${si}">
+            <div class="circle">${done ? '✓' : si+1}</div>
+            <div class="lbl">Série ${si+1}</div>
+          </button>`;
+        });
+        html += `</div>
+        <button class="reset-session-link" data-act="reset-session">↺ Réinitialiser le suivi de cette séance</button>
+
+        <main><div class="set-card-wrap">
+          <div class="set-card ${setDone?'valid-flash':''}">
+            <div class="set-exo-name">${esc(ex.name)}</div>
+            <div class="set-exo-sub">Série ${sess.setIdx+1} / ${ex.sets.length}</div>
+            <div class="target-row">
+              <div class="target-block">
+                <div class="target-num reps">${esc(setMetricValue(set,ex) || "—")}</div>
+                <div class="target-lbl">${esc(metricPlaceholder(ex))}</div>
+              </div>
+              <div class="target-x">×</div>
+              <div class="target-block">
+                <div class="target-num weight">${esc(setLoadValue(set) || "—")}</div>
+                <div class="target-lbl">${esc(ex.loadUnit)}</div>
               </div>
             </div>
-            <div class="set-list">`;
-          ex.sets.forEach((set,si)=>{
-            html += `<div class="set-row">
-              <div class="set-no">${si+1}</div>
-              <input class="set-input" type="number" min="0" step="0.1" inputmode="decimal" placeholder="${esc(metricPlaceholder(ex))} (${esc(ex.metricUnit)})" value="${setMetricValue(set,ex)}" data-act="set-metric" data-eidx="${ei}" data-sidx="${si}">
-              <input class="set-input" type="number" min="0" step="0.1" inputmode="decimal" placeholder="${esc(loadPlaceholder(ex))}" value="${setLoadValue(set)}" data-act="set-load" data-eidx="${ei}" data-sidx="${si}">
-              <button class="remove-set" data-act="remove-set" data-eidx="${ei}" data-sidx="${si}" title="Supprimer la série">×</button>
-            </div>`;
-          });
-          html += `</div><button class="add-set" data-act="add-set" data-eidx="${ei}">+ Ajouter une série</button></div>`;
-        });
+          </div>
+          ${justValidatedSet ? `<div class="set-burst"><div class="check">✓</div></div>` : ``}
+        </div></main>
+
+        <div class="bottom-bar"><div class="bottom-inner">
+          <button class="validate-btn ${setDone?'done':''} ${justValidatedSet?'success-flash':''}" data-act="validate-set">
+            ${setDone ? '<span>✓ Série validée</span>' : '<span>Valider la série</span><span class="next-icon">→</span>'}
+          </button>
+        </div></div>`;
       }
-      html += `<button class="add-exercise" data-act="add-exercise">+ Ajouter un exercice au programme</button></div>`;
     }
 
-  } else {
+  } else if(state.view === "meals") {
     html += `
     <div class="day-nav">
       <button data-act="prev-day" ${state.dayIdx===0?'disabled':''}>‹</button>
@@ -636,6 +748,12 @@ function render(){
     html += `<div class="celebrate"><div class="celebrate-card">
       <div class="big">JOUR VALIDÉ ✓</div>
       <div class="small">On enchaîne sur la suite du plan</div>
+    </div></div>`;
+  }
+  if(trainingCelebrate){
+    html += `<div class="celebrate"><div class="celebrate-card session-celebrate">
+      <div class="big">SÉANCE VALIDÉE 💪</div>
+      <div class="small">Toutes les séries sont faites — beau travail</div>
     </div></div>`;
   }
   if(resetConfirm){
@@ -729,14 +847,14 @@ document.addEventListener("click", function(e){
   if(act==="view-meals"){ state.view="meals"; render(); }
   else if(act==="view-training"){ state.view="training"; render(); }
   else if(act==="select-program"){
-    state.workout.activeProgramId = btn.dataset.pid; persist(); render();
+    state.workout.activeProgramId = btn.dataset.pid; state.trainingMode="session"; persist(); render();
   }
   else if(act==="add-program"){
     const name = prompt("Nom du programme (ex. Jambes, Haut du corps, Hyrox…)","Nouveau programme");
     if(name && name.trim()){
       const id = "p"+Date.now();
       state.workout.programs.push({id,name:name.trim(),exercises:[]});
-      state.workout.activeProgramId=id; persist(); render();
+      state.workout.activeProgramId=id; state.trainingMode="edit"; persist(); render();
     }
   }
   else if(act==="rename-program"){
@@ -805,13 +923,61 @@ document.addEventListener("click", function(e){
     const p=state.workout.programs.find(x=>x.id===state.workout.activeProgramId), ei=+btn.dataset.eidx, si=+btn.dataset.sidx;
     if(p && p.exercises[ei] && p.exercises[ei].sets.length>1){ p.exercises[ei].sets.splice(si,1); persist(); render(); }
   }
+  else if(act==="toggle-training-mode"){
+    state.trainingMode = state.trainingMode==="edit" ? "session" : "edit"; render();
+  }
+  else if(act==="prev-exercise"){
+    const p=state.workout.programs.find(x=>x.id===state.workout.activeProgramId);
+    const sess=sessionFor(p); const idx=p.exercises.findIndex(e=>e.id===sess.exId);
+    if(idx>0){ sess.exId=p.exercises[idx-1].id; sess.setIdx=0; persist(); render(); }
+  }
+  else if(act==="next-exercise"){
+    const p=state.workout.programs.find(x=>x.id===state.workout.activeProgramId);
+    const sess=sessionFor(p); const idx=p.exercises.findIndex(e=>e.id===sess.exId);
+    if(idx<p.exercises.length-1){ sess.exId=p.exercises[idx+1].id; sess.setIdx=0; persist(); render(); }
+  }
+  else if(act==="goto-set"){
+    const p=state.workout.programs.find(x=>x.id===state.workout.activeProgramId);
+    const sess=sessionFor(p); sess.setIdx=parseInt(btn.getAttribute("data-idx"),10); persist(); render();
+  }
+  else if(act==="reset-session"){
+    const p=state.workout.programs.find(x=>x.id===state.workout.activeProgramId);
+    state.workout.session[p.id] = { exId: p.exercises.length?p.exercises[0].id:null, setIdx:0, validated:{} };
+    persist(); render();
+  }
+  else if(act==="validate-set"){
+    const p=state.workout.programs.find(x=>x.id===state.workout.activeProgramId);
+    const sess=sessionFor(p);
+    const exIdx=p.exercises.findIndex(e=>e.id===sess.exId);
+    const ex=p.exercises[exIdx];
+    const key=ex.id+"_"+sess.setIdx;
+    if(sess.validated[key]){ delete sess.validated[key]; persist(); render(); return; }
+    sess.validated[key]=true;
+    persist();
+    justValidatedSet = true; render();
+    setTimeout(()=>{
+      justValidatedSet = false;
+      if(sess.setIdx < ex.sets.length-1){
+        sess.setIdx += 1; persist(); render();
+      } else if(exIdx < p.exercises.length-1){
+        sess.exId = p.exercises[exIdx+1].id; sess.setIdx = 0; persist(); render();
+      } else {
+        trainingCelebrate = true; render();
+        setTimeout(()=>{
+          trainingCelebrate = false;
+          state.workout.session[p.id] = { exId: p.exercises[0].id, setIdx:0, validated:{} };
+          persist(); render();
+        }, 1300);
+      }
+    }, 550);
+  }
   else if(act==="prev-day"){ state.dayIdx = Math.max(0, state.dayIdx-1); state.mealIdx=0; render(); }
   else if(act==="next-day"){ state.dayIdx = Math.min(DAYS.length-1, state.dayIdx+1); state.mealIdx=0; render(); }
   else if(act==="goto-today"){ state.dayIdx = todayRealIdx(); state.mealIdx=0; render(); }
   else if(act==="goto-meal"){ state.mealIdx = parseInt(btn.getAttribute("data-idx"),10); render(); }
   else if(act==="ask-reset"){ resetConfirm = true; render(); }
   else if(act==="cancel-reset"){ resetConfirm = false; render(); }
-  else if(act==="do-reset"){ state.validated={}; state.dayIdx=todayRealIdx(); state.mealIdx=0; state.workout=makeWorkoutDefaults(); resetConfirm=false; persist(); render(); }
+  else if(act==="do-reset"){ state.validated={}; state.dayIdx=todayRealIdx(); state.mealIdx=0; state.workout=makeWorkoutDefaults(); state.trainingMode="session"; resetConfirm=false; persist(); render(); }
   else if(act==="validate"){
     const day = DAYS[state.dayIdx];
     const key = day.iso+"_"+state.mealIdx;
